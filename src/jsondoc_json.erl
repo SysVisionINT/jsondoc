@@ -167,27 +167,79 @@ parse_number(<<C, T/binary>>, Acc) when C >= $0 andalso C =< $9 ->
 parse_number(_, _) ->
 	erlang:error(invalid_char_in_number).
 
-list_to_number(Value) ->
-	case try_integer(Value) of
-		error ->
-			case try_float(Value) of
-				error -> erlang:error(invalid_number);
-				Float -> Float
-			end;
-		Int -> Int
-	end.
+% Rules for number from http://www.json.org/
+list_to_number([$-|List]) ->
+	-1 * decode_number_part1(List);
+list_to_number(List) ->
+	decode_number_part1(List).
 
-try_integer(Value) ->
-	case string:to_integer(Value) of
-		{Int, []} -> Int;
-		_ -> error
-	end.
+%   part1: 0 or <digit[1-9] + digit (one or mor)>
+decode_number_part1([$0|List]) ->
+	decode_number_part2(List, 0);
+decode_number_part1(List) ->
+	decode_number_part1_digits(List, 0, 0).
 
-try_float(Value) ->
-	case string:to_float(Value) of
-		{Float, []} -> Float;
-		_ -> error
-	end.
+decode_number_part1_digits([], 0, _Acc) -> % No digits: Error
+	erlang:error(invalid_number);
+decode_number_part1_digits([], _DigitCount, Acc) -> % End. Return a value
+	Acc;
+decode_number_part1_digits([Digit|List], DigitCount, Acc) when Digit >= $0 andalso Digit =< $9 ->
+	decode_number_part1_digits(List, DigitCount + 1, (Acc * 10) + (Digit - $0));
+decode_number_part1_digits(_Bin, 0, _Acc) -> % No digits: Error
+	 erlang:error(invalid_number);
+decode_number_part1_digits(List, _DigitCount, Acc) ->
+	decode_number_part2(List, Acc).
+
+%   part2: . (optional)
+%   part2: if . , digit (one or more)
+decode_number_part2([$.|List], IntegerPart) ->
+	decode_number_part2_digits(List, IntegerPart, 0, 0);
+decode_number_part2(List, IntegerPart) ->
+	decode_number_part3(List, IntegerPart, undefined, undefined).
+
+decode_number_part2_digits([], _IntegerPart, 0, _Acc) -> % No digits after '.': Error
+	erlang:error(invalid_number);
+decode_number_part2_digits([], IntegerPart, DigitCount, Acc) -> % End. Return a value
+	add(IntegerPart, Acc, DigitCount);
+decode_number_part2_digits([Digit|List], IntegerPart, DigitCount, Acc) when Digit >= $0 andalso Digit =< $9 ->
+	decode_number_part2_digits(List, IntegerPart, DigitCount + 1, (Acc * 10) + (Digit - $0));
+decode_number_part2_digits(_Bin, _IntegerPart, 0, _Acc) -> % No digits after '.': Error
+	erlang:error(invalid_number);
+decode_number_part2_digits(List, IntegerPart, DigitCount, Acc) ->
+	decode_number_part3(List, IntegerPart, Acc, DigitCount).
+
+%   part3: 'E' section (optional)
+%   part3:    eE + (optional +-) + digit (one or more)
+decode_number_part3([], IntegerPart, DecimalPart, DecimalCount) -> % End. Return a value
+	add(IntegerPart, DecimalPart, DecimalCount);
+decode_number_part3([E|List], IntegerPart, DecimalPart, DecimalCount) when E =:= $e orelse E =:= $E ->
+	decode_number_part3_signal(List, IntegerPart, DecimalPart, DecimalCount);
+decode_number_part3(_Other, _IntegerPart, _DecimalPart, _DecimalCount) -> % Unknown digit: Error
+	erlang:error(invalid_number).
+
+decode_number_part3_signal([], _IntegerPart, _DecimalPart, _DecimalCount) -> % No digits after 'eE': Error
+	erlang:error(invalid_number);
+decode_number_part3_signal([$-|List], IntegerPart, DecimalPart, DecimalCount) ->
+	decode_number_part3_digits(List, IntegerPart, DecimalPart, DecimalCount, -1, 0, 0);
+decode_number_part3_signal([$+|List], IntegerPart, DecimalPart, DecimalCount) ->
+	decode_number_part3_digits(List, IntegerPart, DecimalPart, DecimalCount, 1, 0, 0);
+decode_number_part3_signal(List, IntegerPart, DecimalPart, DecimalCount) ->
+	decode_number_part3_digits(List, IntegerPart, DecimalPart, DecimalCount, 1, 0, 0).
+
+decode_number_part3_digits([], _IntegerPart, _DecimalPart, _DecimalCount, _Signal, 0, _Acc) -> % No digits after 'eE' or '-+': Error
+	erlang:error(invalid_number);
+decode_number_part3_digits([], IntegerPart, DecimalPart, DecimalCount, Signal, _DigitCount, Acc) -> % End. Return a value
+	add(IntegerPart, DecimalPart, DecimalCount, Signal, Acc);
+decode_number_part3_digits([Digit|List], IntegerPart, DecimalPart, DecimalCount, Signal, DigitCount, Acc) when Digit >= $0 andalso Digit =< $9 ->
+	decode_number_part3_digits(List, IntegerPart, DecimalPart, DecimalCount, Signal, DigitCount + 1, (Acc * 10) + (Digit - $0)).
+
+add(IntegerPart, undefined, _DecimalCount) -> IntegerPart;
+add(IntegerPart, DecimalPart, DecimalCount) -> IntegerPart + (DecimalPart / math:pow(10, DecimalCount)).
+
+add(IntegerPart, undefined, _DecimalCount, Signal, Exponent) ->
+	IntegerPart * math:pow(10, Signal * Exponent);
+add(IntegerPart, DecimalPart, DecimalCount, Signal, Exponent) ->
+	(IntegerPart * math:pow(10, Signal * Exponent)) + (DecimalPart / math:pow(10, DecimalCount + (-1 * Signal * Exponent))).
 
 %% ====================================================================
 %% Encode
