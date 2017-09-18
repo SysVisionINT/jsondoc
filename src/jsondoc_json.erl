@@ -195,7 +195,7 @@ decode_number_part1_digits(List, _DigitCount, Acc) ->
 decode_number_part2([$.|List], IntegerPart) ->
 	decode_number_part2_digits(List, IntegerPart, 0, 0);
 decode_number_part2(List, IntegerPart) ->
-	decode_number_part3(List, IntegerPart, undefined, undefined).
+	decode_number_part3(List, IntegerPart, 0, 0).
 
 decode_number_part2_digits([], _IntegerPart, 0, _Acc) -> % No digits after '.': Error
 	erlang:error(invalid_number);
@@ -233,13 +233,19 @@ decode_number_part3_digits([], IntegerPart, DecimalPart, DecimalCount, Signal, _
 decode_number_part3_digits([Digit|List], IntegerPart, DecimalPart, DecimalCount, Signal, DigitCount, Acc) when Digit >= $0 andalso Digit =< $9 ->
 	decode_number_part3_digits(List, IntegerPart, DecimalPart, DecimalCount, Signal, DigitCount + 1, (Acc * 10) + (Digit - $0)).
 
-add(IntegerPart, undefined, _DecimalCount) -> IntegerPart;
+add(IntegerPart, _DecimalPart, 0) -> IntegerPart;
 add(IntegerPart, DecimalPart, DecimalCount) -> IntegerPart + (DecimalPart / math:pow(10, DecimalCount)).
 
-add(IntegerPart, undefined, _DecimalCount, Signal, Exponent) ->
-	IntegerPart * math:pow(10, Signal * Exponent);
 add(IntegerPart, DecimalPart, DecimalCount, Signal, Exponent) ->
-	(IntegerPart * math:pow(10, Signal * Exponent)) + (DecimalPart / math:pow(10, DecimalCount + (-1 * Signal * Exponent))).
+io:format("IntegerPart=~p, DecimalPart=~p, DecimalCount=~p, Signal=~p, Exponent=~p~n", [IntegerPart, DecimalPart, DecimalCount, Signal, Exponent]),
+	Value = (IntegerPart + (DecimalPart / math:pow(10, DecimalCount))) * math:pow(10, Signal * Exponent),
+	% Round it
+	Precision = get_precision(DecimalCount, Signal, Exponent),
+	round(Value * Precision) / Precision.
+
+get_precision(DecimalCount, -1, Exponent) when Exponent > DecimalCount -> math:pow(10, Exponent);
+get_precision(DecimalCount, -1, Exponent) -> math:pow(10, Exponent + DecimalCount);
+get_precision(DecimalCount, _ExponentSignal, _Exponent) -> math:pow(10, DecimalCount).
 
 %% ====================================================================
 %% Encode
