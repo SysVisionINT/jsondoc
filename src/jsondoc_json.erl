@@ -237,13 +237,11 @@ add(IntegerPart, _DecimalPart, 0) -> IntegerPart;
 add(IntegerPart, DecimalPart, DecimalCount) -> IntegerPart + (DecimalPart / math:pow(10, DecimalCount)).
 
 add(IntegerPart, DecimalPart, DecimalCount, Signal, Exponent) ->
-io:format("IntegerPart=~p, DecimalPart=~p, DecimalCount=~p, Signal=~p, Exponent=~p~n", [IntegerPart, DecimalPart, DecimalCount, Signal, Exponent]),
 	Value = (IntegerPart + (DecimalPart / math:pow(10, DecimalCount))) * math:pow(10, Signal * Exponent),
 	% Round it
 	Precision = get_precision(DecimalCount, Signal, Exponent),
 	round(Value * Precision) / Precision.
 
-get_precision(DecimalCount, -1, Exponent) when Exponent > DecimalCount -> math:pow(10, Exponent);
 get_precision(DecimalCount, -1, Exponent) -> math:pow(10, Exponent + DecimalCount);
 get_precision(DecimalCount, _ExponentSignal, _Exponent) -> math:pow(10, DecimalCount).
 
